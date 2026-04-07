@@ -8,6 +8,9 @@ from .models import GNSSPosition
 class AutoParser:
     """Universal GNSS stream parser with auto-protocol detection."""
     
+    MAX_NMEA_LENGTH = 150
+    MAX_UBX_PAYLOAD = 2048
+
     def __init__(self, callback: Optional[Callable[[GNSSPosition], None]] = None):
         self.callback = callback
         self.nmea = NMEAParser()
@@ -17,12 +20,24 @@ class AutoParser:
         
     def feed(self, data: bytes):
         """Append new bytes and process any complete packets."""
+        positions = []
         with self._lock:
             self._buffer.extend(data)
-            self._process_buffer()
+            positions = self._process_buffer()
         
-    def _process_buffer(self):
+        # Execute callbacks outside the lock to prevent deadlocks and performance issues
+        if self.callback and positions:
+            for pos in positions:
+                try:
+                    self.callback(pos)
+                except Exception:
+                    # Prevent callback exceptions from crashing the parser thread
+                    pass
+        
+    def _process_buffer(self) -> list[GNSSPosition]:
         """Internal logic to extract and route packets with efficient noise handling."""
+        extracted_positions = []
+        
         while len(self._buffer) > 0:
             # Look for headers
             nmea_idx = self._buffer.find(b"$")
@@ -37,7 +52,7 @@ class AutoParser:
                         del self._buffer[:-1]
                     else:
                         self._buffer.clear()
-                return
+                return extracted_positions
             
             # Case 2: Header found. Skip any noise before the first header.
             first_idx = min(idx for idx in (nmea_idx, ubx_idx) if idx != -1)
@@ -69,26 +84,26 @@ class AutoParser:
                     
                 if nl_idx == -1:
                     # Protect against memory leak
-                    if len(self._buffer) > 150:
-                        # 150 bytes without newline or header -> safely drop all
-                        del self._buffer[:150]
+                    if len(self._buffer) > self.MAX_NMEA_LENGTH:
+                        # Too long without newline or header -> safely drop the garbage
+                        del self._buffer[:self.MAX_NMEA_LENGTH]
                         continue
-                    return # Incomplete sentence
+                    return extracted_positions # Incomplete sentence
                 
                 # Extract sentence
                 sentence_bytes = self._buffer[:nl_idx+1]
                 del self._buffer[:nl_idx+1]
                 
-                # 1.2: Prevent decoding garbage by filtering out obvious null bytes safely
+                # Prevent decoding garbage by filtering out obvious null bytes safely
                 if b'\x00' in sentence_bytes:
                     continue
                 
                 try:
-                    # errors="replace" avoids crashing (keeps the library running) safely
+                    # errors="replace" avoids crashing safely
                     sentence = sentence_bytes.decode("ascii", errors="replace")
                     pos = self.nmea.parse(sentence)
-                    if pos and self.callback:
-                        self.callback(pos)
+                    if pos:
+                        extracted_positions.append(pos)
                 except ValueError:
                     pass
                     
@@ -96,15 +111,20 @@ class AutoParser:
                 # Handle UBX
                 # Need at least 6 bytes for the full header
                 if len(self._buffer) < 6:
-                    return
+                    return extracted_positions
                 
                 cls, msg_id, length = struct.unpack("<BBH", self._buffer[2:6])
                 
+                # Security: Prevent memory exhaustion if length is huge
+                if length > self.MAX_UBX_PAYLOAD:
+                    del self._buffer[:2] # Skip preamble and search again
+                    continue
+
                 # Total packet length: Preamble(2) + Cls(1) + ID(1) + Length(2) + Payload(L) + Checksum(2)
                 total_len = 6 + length + 2
                 
                 if len(self._buffer) < total_len:
-                    return # Incomplete packet
+                    return extracted_positions # Incomplete packet
                 
                 # Extract full packet and payload
                 packet = self._buffer[:total_len]
@@ -113,14 +133,29 @@ class AutoParser:
                 # Verify UBX checksum
                 expected_ck_a, expected_ck_b = packet[-2], packet[-1]
                 if not self.ubx.verify_checksum(cls, msg_id, length, payload, expected_ck_a, expected_ck_b):
-                    del self._buffer[:2] # Skip preamble and try again
+                    # Efficient re-sync: Find the next potential header instead of skipping just 2 bytes
+                    next_nmea = self._buffer.find(b"$", 1)
+                    next_ubx = self._buffer.find(b"\xB5\x62", 1)
+                    
+                    found_indices = [idx for idx in (next_nmea, next_ubx) if idx != -1]
+                    if found_indices:
+                        del self._buffer[:min(found_indices)]
+                    else:
+                        # No more headers in the current buffer, but keep the last byte 
+                        # just in case it's the start of a new header (\xB5)
+                        if self._buffer[-1] == 0xB5:
+                            del self._buffer[:-1]
+                        else:
+                            self._buffer.clear()
                     continue
                 
                 del self._buffer[:total_len]
                 
                 pos = self.ubx.parse_payload(cls, msg_id, payload)
-                if pos and self.callback:
-                    self.callback(pos)
+                if pos:
+                    extracted_positions.append(pos)
             else:
                 # Should not happen
                 del self._buffer[:1]
+        
+        return extracted_positions

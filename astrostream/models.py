@@ -13,10 +13,10 @@ class GNSSPosition:
     RTK_FLOAT = 5
 
     timestamp: Optional[datetime] = None
-    lat: float = 0.0          # Decimal Degrees
-    lon: float = 0.0          # Decimal Degrees
-    alt: float = 0.0          # Meters
-    fix_type: int = 0         # Standardized using constants above
+    lat: Optional[float] = None          # Decimal Degrees
+    lon: Optional[float] = None          # Decimal Degrees
+    alt: Optional[float] = None          # Meters
+    fix_type: int = 0                    # Standardized using constants above
     num_sats: int = 0
     hdop: float = 99.9
     
@@ -31,7 +31,10 @@ class GNSSPosition:
             self.RTK_FIXED: "RTK Fixed",
             self.RTK_FLOAT: "RTK Float"
         }.get(self.fix_type, f"Unknown({self.fix_type})")
-        return f"<GNSS {fix_str}: {self.lat:.6f}, {self.lon:.6f} Sats: {self.num_sats}>"
+        
+        lat_str = f"{self.lat:.6f}" if self.lat is not None else "None"
+        lon_str = f"{self.lon:.6f}" if self.lon is not None else "None"
+        return f"<GNSS {fix_str}: {lat_str}, {lon_str} Sats: {self.num_sats}>"
 
 @dataclass
 class SatelliteInfo:

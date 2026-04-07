@@ -24,29 +24,39 @@ class NMEAParser:
         except ValueError:
             return False
 
-    def _dm_to_deg(self, value: str, direction: str) -> float:
+    def _dm_to_deg(self, value: str, direction: str) -> Optional[float]:
         """Convert Degree-Minutes (DDMM.MMMM) to Decimal Degrees (DD.DDDDD)."""
-        if not value:
-            return 0.0
+        if not value or not value.strip():
+            return None
         
         # Split into degrees and minutes
         # Lat: DDMM.MMMM, Lon: DDDMM.MMMM
         dot_idx = value.find(".")
         if dot_idx < 0:
-            return 0.0
+            # Maybe it's just degrees? (Non-standard but let's be safe)
+            try:
+                deg = float(value)
+                return -deg if direction in ["S", "W"] else deg
+            except ValueError:
+                return None
             
         if dot_idx < 2:
-            raise ValueError(f"Invalid coordinate format: {value}")
+            return None # Invalid format
         
-        min_str = value[dot_idx - 2:]
-        deg_str = value[:dot_idx - 2]
-        
-        deg = float(deg_str) + (float(min_str) / 60.0)
-        
-        if direction in ["S", "W"]:
-            deg = -deg
+        try:
+            min_str = value[dot_idx - 2:]
+            deg_str = value[:dot_idx - 2]
             
-        return deg
+            # deg_str could be empty for very small latitudes if not zero-padded
+            deg_val = float(deg_str) if deg_str else 0.0
+            deg = deg_val + (float(min_str) / 60.0)
+            
+            if direction in ["S", "W"]:
+                deg = -deg
+                
+            return deg
+        except ValueError:
+            return None
 
     def parse(self, sentence: str) -> Optional[GNSSPosition]:
         """Parse a single NMEA sentence ($GPGGA, $GPRMC, etc.)."""
@@ -67,53 +77,57 @@ class NMEAParser:
         if msg_type == "GGA":
             # $GPGGA,time,lat,N,lon,E,fix,sats,hdop,alt,M,geoid,M,age,id
             if len(fields) >= 10:
-                try:
-                    pos.lat = self._dm_to_deg(fields[2], fields[3])
-                    pos.lon = self._dm_to_deg(fields[4], fields[5])
-                    
-                    # Standardize fix type
-                    quality = int(fields[6]) if fields[6] else 0
+                pos.lat = self._dm_to_deg(fields[2], fields[3])
+                pos.lon = self._dm_to_deg(fields[4], fields[5])
+                
+                # Standardize fix type
+                if fields[6] and fields[6].isdigit():
+                    quality = int(fields[6])
                     if quality in [1, 2, 3]: # GPS, DGPS, PPS fix
                         pos.fix_type = GNSSPosition.FIX_3D
                     elif quality == 4: # RTK Fixed
                         pos.fix_type = GNSSPosition.RTK_FIXED
                     elif quality == 5: # RTK Float
                         pos.fix_type = GNSSPosition.RTK_FLOAT
-                    else:
-                        pos.fix_type = GNSSPosition.NO_FIX
-
-                    pos.num_sats = int(fields[7]) if fields[7] else 0
-                    pos.hdop = float(fields[8]) if fields[8] else 99.9
-                    pos.alt = float(fields[9]) if fields[9] else 0.0
-                    return pos
+                
+                if fields[7] and fields[7].isdigit():
+                    pos.num_sats = int(fields[7])
+                
+                try:
+                    if fields[8]: pos.hdop = float(fields[8])
+                    if fields[9]: pos.alt = float(fields[9])
                 except ValueError:
-                    return None
+                    pass
+                    
+                return pos
                 
         elif msg_type == "RMC":
             # $GPRMC,time,status,lat,N,lon,E,spd,cog,date,mv,mvE,mode
             if len(fields) >= 10:
-                # Update time if possible
+                # Update status
                 status = fields[2]
                 if status == "A": # Active
-                    try:
-                        pos.lat = self._dm_to_deg(fields[3], fields[4])
-                        pos.lon = self._dm_to_deg(fields[5], fields[6])
-                    except ValueError:
-                        return None
+                    pos.lat = self._dm_to_deg(fields[3], fields[4])
+                    pos.lon = self._dm_to_deg(fields[5], fields[6])
                 
-                # Parse Date and Time if available (fields[1] is time HHMMSS, fields[9] is date DDMMYY)
-                if len(fields) >= 10 and fields[1] and fields[9]:
+                # Parse Date and Time if available (fields[1] is time HHMMSS.ss, fields[9] is date DDMMYY)
+                if fields[1] and fields[9]:
                     try:
                         t_str = fields[1].split(".")[0] # remove milliseconds
                         d_str = fields[9]
-                        if len(t_str) == 6 and len(d_str) == 6:
-                            hour, minute, sec = int(t_str[0:2]), int(t_str[2:4]), int(t_str[4:6])
-                            if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= sec <= 60):
-                                raise ValueError("Invalid time values")
-                                
-                            day, month, year = int(d_str[0:2]), int(d_str[2:4]), 2000 + int(d_str[4:6])
-                            pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
-                    except ValueError:
+                        if len(t_str) >= 6 and len(d_str) == 6:
+                            hour = int(t_str[0:2])
+                            minute = int(t_str[2:4])
+                            sec = int(t_str[4:6])
+                            
+                            day = int(d_str[0:2])
+                            month = int(d_str[2:4])
+                            year = 2000 + int(d_str[4:6])
+                            
+                            if (1 <= month <= 12 and 1 <= day <= 31 and 
+                                0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= sec <= 60):
+                                pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
+                    except (ValueError, IndexError):
                         pos.timestamp = None
                 return pos
                         

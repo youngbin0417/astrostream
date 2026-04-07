@@ -74,9 +74,20 @@ class UBXParser:
             hmsl_raw = struct.unpack("<i", payload[36:40])[0]
             
             # Convert to unified models
-            pos.lat = lat_raw / 1e7
-            pos.lon = lon_raw / 1e7
-            pos.alt = hmsl_raw / 1000.0 # mm to meters
+            # Only set coordinates if we have some kind of fix (2D, 3D, or RTK)
+            # fix_type_raw: 2: 2D, 3: 3D, 4: GNSS+DR
+            # flags: 0x80: RTK Fixed, 0x40: RTK Float
+            has_fix = (fix_type_raw in (2, 3, 4)) or (flags & 0xC0 in (0x40, 0x80))
+            
+            if has_fix:
+                pos.lat = lat_raw / 1e7
+                pos.lon = lon_raw / 1e7
+                pos.alt = hmsl_raw / 1000.0 # mm to meters
+            else:
+                pos.lat = None
+                pos.lon = None
+                pos.alt = None
+                
             pos.num_sats = num_sats
             
             # Map fix type (carrSoln is bits 6-7 -> mask 0xC0)
