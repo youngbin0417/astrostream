@@ -5,9 +5,6 @@ from ..models import GNSSPosition
 
 class NMEAParser:
     """NMEA 0183 protocol parser."""
-    
-    def __init__(self):
-        self._current_pos = GNSSPosition()
         
     def _verify_checksum(self, sentence: str) -> bool:
         """Verify XOR checksum of NMEA sentence."""
@@ -65,32 +62,30 @@ class NMEAParser:
         talker_id = fields[0][:2]  # Left for potential future use or context
         msg_type = fields[0][2:]
         
-        # const_map could map talker ID to constellation if needed in future
-        # const_map = {
-        #     "GP": "gps", "GL": "glonass", "GA": "galileo", "GB": "beidou", "GQ": "qzss", "GN": "mixed"
-        # }
+        pos = GNSSPosition()
         
         if msg_type == "GGA":
             # $GPGGA,time,lat,N,lon,E,fix,sats,hdop,alt,M,geoid,M,age,id
             if len(fields) >= 10:
                 try:
-                    self._current_pos.lat = self._dm_to_deg(fields[2], fields[3])
-                    self._current_pos.lon = self._dm_to_deg(fields[4], fields[5])
+                    pos.lat = self._dm_to_deg(fields[2], fields[3])
+                    pos.lon = self._dm_to_deg(fields[4], fields[5])
                     
                     # Standardize fix type
                     quality = int(fields[6]) if fields[6] else 0
                     if quality in [1, 2, 3]: # GPS, DGPS, PPS fix
-                        self._current_pos.fix_type = GNSSPosition.FIX_3D
+                        pos.fix_type = GNSSPosition.FIX_3D
                     elif quality == 4: # RTK Fixed
-                        self._current_pos.fix_type = GNSSPosition.RTK_FIXED
+                        pos.fix_type = GNSSPosition.RTK_FIXED
                     elif quality == 5: # RTK Float
-                        self._current_pos.fix_type = GNSSPosition.RTK_FLOAT
+                        pos.fix_type = GNSSPosition.RTK_FLOAT
                     else:
-                        self._current_pos.fix_type = GNSSPosition.NO_FIX
+                        pos.fix_type = GNSSPosition.NO_FIX
 
-                    self._current_pos.num_sats = int(fields[7]) if fields[7] else 0
-                    self._current_pos.hdop = float(fields[8]) if fields[8] else 99.9
-                    self._current_pos.alt = float(fields[9]) if fields[9] else 0.0
+                    pos.num_sats = int(fields[7]) if fields[7] else 0
+                    pos.hdop = float(fields[8]) if fields[8] else 99.9
+                    pos.alt = float(fields[9]) if fields[9] else 0.0
+                    return pos
                 except ValueError:
                     return None
                 
@@ -101,8 +96,8 @@ class NMEAParser:
                 status = fields[2]
                 if status == "A": # Active
                     try:
-                        self._current_pos.lat = self._dm_to_deg(fields[3], fields[4])
-                        self._current_pos.lon = self._dm_to_deg(fields[5], fields[6])
+                        pos.lat = self._dm_to_deg(fields[3], fields[4])
+                        pos.lon = self._dm_to_deg(fields[5], fields[6])
                     except ValueError:
                         return None
                 
@@ -113,9 +108,13 @@ class NMEAParser:
                         d_str = fields[9]
                         if len(t_str) == 6 and len(d_str) == 6:
                             hour, minute, sec = int(t_str[0:2]), int(t_str[2:4]), int(t_str[4:6])
+                            if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= sec <= 60):
+                                raise ValueError("Invalid time values")
+                                
                             day, month, year = int(d_str[0:2]), int(d_str[2:4]), 2000 + int(d_str[4:6])
-                            self._current_pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
+                            pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
                     except ValueError:
-                        self._current_pos.timestamp = None
+                        pos.timestamp = None
+                return pos
                         
-        return deepcopy(self._current_pos)
+        return None

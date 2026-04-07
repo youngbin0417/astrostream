@@ -15,9 +15,6 @@ class UBXParser:
     
     # Minimum payload size for NAV-PVT (need at least 40 bytes for hMSL)
     NAV_PVT_MIN_LENGTH = 40
-    
-    def __init__(self):
-        self._current_pos = GNSSPosition()
         
     def verify_checksum(self, cls: int, msg_id: int, length: int, payload: bytes, expected_ck_a: int, expected_ck_b: int) -> bool:
         """Verify Fletcher-8 checksum of UBX message."""
@@ -41,6 +38,8 @@ class UBXParser:
             if len(payload) < self.NAV_PVT_MIN_LENGTH:
                 return None
             
+            pos = GNSSPosition()
+            
             # NAV-PVT Payload (92 bytes)
             # iTOW(4), Year(2), Month(1), Day(1), Hour(1), Min(1), Sec(1), Valid(1), tAcc(4), nano(4),
             # fixType(1), flags(1), flags2(1), numSV(1), lon(4), lat(4), height(4), hMSL(4), hAcc(4), vAcc(4)...
@@ -53,9 +52,9 @@ class UBXParser:
             year = struct.unpack("<H", payload[4:6])[0]
             month, day, hour, minute, sec = payload[6:11]
             try:
-                self._current_pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
+                pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
             except ValueError:
-                self._current_pos.timestamp = None
+                pos.timestamp = None
             
             # Unpack key fields
             # Offset 20: fixType (B)
@@ -75,24 +74,23 @@ class UBXParser:
             hmsl_raw = struct.unpack("<i", payload[36:40])[0]
             
             # Convert to unified models
-            self._current_pos.lat = lat_raw / 1e7
-            self._current_pos.lon = lon_raw / 1e7
-            self._current_pos.alt = hmsl_raw / 1000.0 # mm to meters
-            self._current_pos.num_sats = num_sats
+            pos.lat = lat_raw / 1e7
+            pos.lon = lon_raw / 1e7
+            pos.alt = hmsl_raw / 1000.0 # mm to meters
+            pos.num_sats = num_sats
             
             # Map fix type (carrSoln is bits 6-7 -> mask 0xC0)
             if flags & 0xC0 == 0x80: # RTK Fixed
-                self._current_pos.fix_type = GNSSPosition.RTK_FIXED
+                pos.fix_type = GNSSPosition.RTK_FIXED
             elif flags & 0xC0 == 0x40: # RTK Float
-                self._current_pos.fix_type = GNSSPosition.RTK_FLOAT
+                pos.fix_type = GNSSPosition.RTK_FLOAT
             elif fix_type_raw == 2:
-                self._current_pos.fix_type = GNSSPosition.FIX_2D
+                pos.fix_type = GNSSPosition.FIX_2D
             elif fix_type_raw == 3:
-                self._current_pos.fix_type = GNSSPosition.FIX_3D
+                pos.fix_type = GNSSPosition.FIX_3D
             else:
-                self._current_pos.fix_type = GNSSPosition.NO_FIX
+                pos.fix_type = GNSSPosition.NO_FIX
                 
-            # Return a copy to avoid shared reference issues
-            return deepcopy(self._current_pos)
+            return pos
             
         return None
