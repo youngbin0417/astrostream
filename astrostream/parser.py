@@ -124,6 +124,27 @@ class AutoParser:
                 total_len = 6 + length + 2
                 
                 if len(self._buffer) < total_len:
+                    # Check if another header interrupts this "incomplete" UBX packet.
+                    # This prevents DoS where a bogus UBX header with large length blocks 
+                    # subsequent valid packets.
+                    next_nmea = self._buffer.find(b"$", 1)
+                    next_ubx = self._buffer.find(b"\xB5\x62", 1)
+                    
+                    # If we found another header within the "expected" payload range of the current UBX,
+                    # we should check if the current UBX is likely bogus.
+                    # For known fixed-length messages like NAV-PVT (92 bytes), any mismatch is bogus.
+                    is_pvt = (cls == 0x01 and msg_id == 0x07)
+                    pvt_expected_len = 92
+                    
+                    found_indices = [idx for idx in (next_nmea, next_ubx) if idx != -1]
+                    if found_indices:
+                        next_idx = min(found_indices)
+                        # If it's NAV-PVT but length is definitely wrong, or if we have another header
+                        # and the current buffer is already quite long, we treat it as noise.
+                        if (is_pvt and length != pvt_expected_len) or (next_idx < total_len and len(self._buffer) > 100):
+                             del self._buffer[:next_idx]
+                             continue
+
                     return extracted_positions # Incomplete packet
                 
                 # Extract full packet and payload

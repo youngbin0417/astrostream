@@ -77,18 +77,25 @@ class NMEAParser:
         if msg_type == "GGA":
             # $GPGGA,time,lat,N,lon,E,fix,sats,hdop,alt,M,geoid,M,age,id
             if len(fields) >= 10:
-                pos.lat = self._dm_to_deg(fields[2], fields[3])
-                pos.lon = self._dm_to_deg(fields[4], fields[5])
-                
                 # Standardize fix type
+                quality = 0
                 if fields[6] and fields[6].isdigit():
                     quality = int(fields[6])
+                
+                if quality > 0:
+                    pos.lat = self._dm_to_deg(fields[2], fields[3])
+                    pos.lon = self._dm_to_deg(fields[4], fields[5])
+                    
                     if quality in [1, 2, 3]: # GPS, DGPS, PPS fix
                         pos.fix_type = GNSSPosition.FIX_3D
                     elif quality == 4: # RTK Fixed
                         pos.fix_type = GNSSPosition.RTK_FIXED
                     elif quality == 5: # RTK Float
                         pos.fix_type = GNSSPosition.RTK_FLOAT
+                else:
+                    pos.lat = None
+                    pos.lon = None
+                    pos.fix_type = GNSSPosition.NO_FIX
                 
                 if fields[7] and fields[7].isdigit():
                     pos.num_sats = int(fields[7])

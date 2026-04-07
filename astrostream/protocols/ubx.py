@@ -46,29 +46,25 @@ class UBXParser:
             
             # fixType mapping:
             # 0: no fix, 1: dead reckoning, 2: 2D-fix, 3: 3D-fix, 4: GNSS+dead reckoning, 5: Time only
-            # RTK status is in flags
             
             # Unpack time (UTC)
             year = struct.unpack("<H", payload[4:6])[0]
             month, day, hour, minute, sec = payload[6:11]
-            try:
-                pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
-            except ValueError:
+            valid_flags = payload[11]
+            
+            # Check validDate (bit 0) and validTime (bit 1)
+            if valid_flags & 0x03 == 0x03:
+                try:
+                    pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
+                except ValueError:
+                    pos.timestamp = None
+            else:
                 pos.timestamp = None
             
             # Unpack key fields
-            # Offset 20: fixType (B)
-            # Offset 21: flags (B) - 0x18: RTK fixed, 0x10: RTK float
-            # Offset 23: numSV (B)
-            # Offset 24: lon (i) - 1e-7 deg
-            # Offset 28: lat (i) - 1e-7 deg
-            # Offset 32: height (i) - mm
-            
             fix_type_raw = payload[20]
             flags = payload[21]
             num_sats = payload[23]
-            # Offset 32: height (i) - mm (ellipsoid)
-            # Offset 36: hMSL (i) - mm (mean sea level)
             lon_raw = struct.unpack("<i", payload[24:28])[0]
             lat_raw = struct.unpack("<i", payload[28:32])[0]
             hmsl_raw = struct.unpack("<i", payload[36:40])[0]
@@ -97,7 +93,7 @@ class UBXParser:
                 pos.fix_type = GNSSPosition.RTK_FLOAT
             elif fix_type_raw == 2:
                 pos.fix_type = GNSSPosition.FIX_2D
-            elif fix_type_raw == 3:
+            elif fix_type_raw in (3, 4): # 3D or GNSS+DR
                 pos.fix_type = GNSSPosition.FIX_3D
             else:
                 pos.fix_type = GNSSPosition.NO_FIX
