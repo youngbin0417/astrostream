@@ -52,17 +52,26 @@ class AutoParser:
                 # Read until \n
                 nl_idx = self._buffer.find(b"\n")
                 
-                # Check for other protocol headers starting INSIDE this unclosed sentence
-                ubx_in_nmea = self._buffer.find(b"\xB5\x62", 1)
-                if ubx_in_nmea != -1 and (nl_idx == -1 or ubx_in_nmea < nl_idx):
-                    # Found a UBX header before newline. NMEA sentence is corrupted.
-                    del self._buffer[:ubx_in_nmea]
+                # Check if another header interrupts this sentence
+                next_nmea = self._buffer.find(b"$", 1)
+                next_ubx = self._buffer.find(b"\xB5\x62", 1)
+                
+                interrupt_idx = -1
+                if next_nmea != -1: interrupt_idx = next_nmea
+                if next_ubx != -1:
+                    if interrupt_idx == -1 or next_ubx < interrupt_idx:
+                        interrupt_idx = next_ubx
+                        
+                if interrupt_idx != -1 and (nl_idx == -1 or interrupt_idx < nl_idx):
+                    # Interrupted by a new header! The current NMEA is garbage.
+                    del self._buffer[:interrupt_idx]
                     continue
                     
                 if nl_idx == -1:
-                    # Protect against memory leak and deadlock if no newline comes
+                    # Protect against memory leak
                     if len(self._buffer) > 150:
-                        del self._buffer[:1]
+                        # 150 bytes without newline or header -> safely drop all
+                        del self._buffer[:150]
                         continue
                     return # Incomplete sentence
                 
@@ -70,12 +79,17 @@ class AutoParser:
                 sentence_bytes = self._buffer[:nl_idx+1]
                 del self._buffer[:nl_idx+1]
                 
+                # 1.2: Prevent decoding garbage by filtering out obvious null bytes safely
+                if b'\x00' in sentence_bytes:
+                    continue
+                
                 try:
-                    sentence = sentence_bytes.decode("ascii", errors="ignore")
+                    # errors="replace" avoids crashing (keeps the library running) safely
+                    sentence = sentence_bytes.decode("ascii", errors="replace")
                     pos = self.nmea.parse(sentence)
                     if pos and self.callback:
                         self.callback(pos)
-                except Exception:
+                except ValueError:
                     pass
                     
             elif ubx_idx == 0:
