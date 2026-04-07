@@ -34,7 +34,7 @@ class AutoParser:
                 if len(self._buffer) > 0:
                     last_byte = self._buffer[-1]
                     if last_byte in (0x24, 0xB5): # '$' or '\xB5'
-                        self._buffer = self._buffer[-1:]
+                        del self._buffer[:-1]
                     else:
                         self._buffer.clear()
                 return
@@ -42,7 +42,7 @@ class AutoParser:
             # Case 2: Header found. Skip any noise before the first header.
             first_idx = min(idx for idx in (nmea_idx, ubx_idx) if idx != -1)
             if first_idx > 0:
-                self._buffer = self._buffer[first_idx:]
+                del self._buffer[:first_idx]
                 # Re-check indices after shifting
                 if nmea_idx != -1: nmea_idx -= first_idx
                 if ubx_idx != -1: ubx_idx -= first_idx
@@ -56,19 +56,19 @@ class AutoParser:
                 ubx_in_nmea = self._buffer.find(b"\xB5\x62", 1)
                 if ubx_in_nmea != -1 and (nl_idx == -1 or ubx_in_nmea < nl_idx):
                     # Found a UBX header before newline. NMEA sentence is corrupted.
-                    self._buffer = self._buffer[ubx_in_nmea:]
+                    del self._buffer[:ubx_in_nmea]
                     continue
                     
                 if nl_idx == -1:
                     # Protect against memory leak and deadlock if no newline comes
                     if len(self._buffer) > 150:
-                        self._buffer = self._buffer[1:]
+                        del self._buffer[:1]
                         continue
                     return # Incomplete sentence
                 
                 # Extract sentence
                 sentence_bytes = self._buffer[:nl_idx+1]
-                self._buffer = self._buffer[nl_idx+1:]
+                del self._buffer[:nl_idx+1]
                 
                 try:
                     sentence = sentence_bytes.decode("ascii", errors="ignore")
@@ -99,14 +99,14 @@ class AutoParser:
                 # Verify UBX checksum
                 expected_ck_a, expected_ck_b = packet[-2], packet[-1]
                 if not self.ubx.verify_checksum(cls, msg_id, length, payload, expected_ck_a, expected_ck_b):
-                    self._buffer = self._buffer[2:] # Skip preamble and try again
+                    del self._buffer[:2] # Skip preamble and try again
                     continue
                 
-                self._buffer = self._buffer[total_len:]
+                del self._buffer[:total_len]
                 
                 pos = self.ubx.parse_payload(cls, msg_id, payload)
                 if pos and self.callback:
                     self.callback(pos)
             else:
                 # Should not happen
-                self._buffer = self._buffer[1:]
+                del self._buffer[:1]
