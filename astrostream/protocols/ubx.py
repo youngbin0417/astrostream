@@ -23,10 +23,12 @@ class UBXParser:
         """Verify Fletcher-8 checksum of UBX message."""
         # Checksum is calculated over Class, ID, Length, and Payload
         header = struct.pack("<BBH", cls, msg_id, length)
-        combined = header + payload
         
         ck_a, ck_b = 0, 0
-        for byte in combined:
+        for byte in header:
+            ck_a = (ck_a + byte) & 0xFF
+            ck_b = (ck_b + ck_a) & 0xFF
+        for byte in payload:
             ck_a = (ck_a + byte) & 0xFF
             ck_b = (ck_b + ck_a) & 0xFF
             
@@ -53,7 +55,7 @@ class UBXParser:
             try:
                 self._current_pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
             except ValueError:
-                pass
+                self._current_pos.timestamp = None
             
             # Unpack key fields
             # Offset 20: fixType (B)
@@ -65,6 +67,7 @@ class UBXParser:
             
             fix_type_raw = payload[20]
             flags = payload[21]
+            num_sats = payload[23]
             # Offset 32: height (i) - mm (ellipsoid)
             # Offset 36: hMSL (i) - mm (mean sea level)
             lon_raw = struct.unpack("<i", payload[24:28])[0]

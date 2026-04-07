@@ -126,3 +126,5 @@ dmypy.json
 
 # Test and logs
 *.txt
+
+remediation_report.md

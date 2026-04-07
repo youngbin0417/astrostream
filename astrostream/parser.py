@@ -1,4 +1,5 @@
 import struct
+import threading
 from typing import Optional, Callable
 from .protocols.nmea import NMEAParser
 from .protocols.ubx import UBXParser
@@ -12,11 +13,13 @@ class AutoParser:
         self.nmea = NMEAParser()
         self.ubx = UBXParser()
         self._buffer = bytearray()
+        self._lock = threading.Lock()
         
     def feed(self, data: bytes):
         """Append new bytes and process any complete packets."""
-        self._buffer.extend(data)
-        self._process_buffer()
+        with self._lock:
+            self._buffer.extend(data)
+            self._process_buffer()
         
     def _process_buffer(self):
         """Internal logic to extract and route packets with efficient noise handling."""
@@ -92,13 +95,14 @@ class AutoParser:
                 # Extract full packet and payload
                 packet = self._buffer[:total_len]
                 payload = self._buffer[6:6+length]
-                self._buffer = self._buffer[total_len:]
                 
                 # Verify UBX checksum
                 expected_ck_a, expected_ck_b = packet[-2], packet[-1]
                 if not self.ubx.verify_checksum(cls, msg_id, length, payload, expected_ck_a, expected_ck_b):
                     self._buffer = self._buffer[2:] # Skip preamble and try again
                     continue
+                
+                self._buffer = self._buffer[total_len:]
                 
                 pos = self.ubx.parse_payload(cls, msg_id, payload)
                 if pos and self.callback:

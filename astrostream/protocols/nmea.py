@@ -37,6 +37,9 @@ class NMEAParser:
         dot_idx = value.find(".")
         if dot_idx < 0:
             return 0.0
+            
+        if dot_idx < 2:
+            raise ValueError(f"Invalid coordinate format: {value}")
         
         min_str = value[dot_idx - 2:]
         deg_str = value[:dot_idx - 2]
@@ -89,7 +92,7 @@ class NMEAParser:
                     self._current_pos.hdop = float(fields[8]) if fields[8] else 99.9
                     self._current_pos.alt = float(fields[9]) if fields[9] else 0.0
                 except ValueError:
-                    pass
+                    return None
                 
         elif msg_type == "RMC":
             # $GPRMC,time,status,lat,N,lon,E,spd,cog,date,mv,mvE,mode
@@ -101,7 +104,7 @@ class NMEAParser:
                         self._current_pos.lat = self._dm_to_deg(fields[3], fields[4])
                         self._current_pos.lon = self._dm_to_deg(fields[5], fields[6])
                     except ValueError:
-                        pass
+                        return None
                 
                 # Parse Date and Time if available (fields[1] is time HHMMSS, fields[9] is date DDMMYY)
                 if len(fields) >= 10 and fields[1] and fields[9]:
@@ -113,6 +116,6 @@ class NMEAParser:
                             day, month, year = int(d_str[0:2]), int(d_str[2:4]), 2000 + int(d_str[4:6])
                             self._current_pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
                     except ValueError:
-                        pass
+                        self._current_pos.timestamp = None
                         
         return deepcopy(self._current_pos)
