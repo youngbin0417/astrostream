@@ -1,5 +1,6 @@
 from typing import Optional
 from copy import deepcopy
+from datetime import datetime, timezone
 from ..models import GNSSPosition
 
 class NMEAParser:
@@ -102,4 +103,16 @@ class NMEAParser:
                     except ValueError:
                         pass
                 
+                # Parse Date and Time if available (fields[1] is time HHMMSS, fields[9] is date DDMMYY)
+                if len(fields) >= 10 and fields[1] and fields[9]:
+                    try:
+                        t_str = fields[1].split(".")[0] # remove milliseconds
+                        d_str = fields[9]
+                        if len(t_str) == 6 and len(d_str) == 6:
+                            hour, minute, sec = int(t_str[0:2]), int(t_str[2:4]), int(t_str[4:6])
+                            day, month, year = int(d_str[0:2]), int(d_str[2:4]), 2000 + int(d_str[4:6])
+                            self._current_pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
+                    except ValueError:
+                        pass
+                        
         return deepcopy(self._current_pos)

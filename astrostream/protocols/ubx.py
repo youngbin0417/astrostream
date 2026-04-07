@@ -1,6 +1,7 @@
 import struct
 from typing import Optional
 from copy import deepcopy
+from datetime import datetime, timezone
 from ..models import GNSSPosition
 
 class UBXParser:
@@ -12,8 +13,8 @@ class UBXParser:
     # Message IDs
     UBX_NAV_PVT = 0x07
     
-    # Minimum payload size for NAV-PVT (need at least 36 bytes)
-    NAV_PVT_MIN_LENGTH = 36
+    # Minimum payload size for NAV-PVT (need at least 40 bytes for hMSL)
+    NAV_PVT_MIN_LENGTH = 40
     
     def __init__(self):
         self._current_pos = GNSSPosition()
@@ -45,6 +46,14 @@ class UBXParser:
             # fixType mapping:
             # 0: no fix, 1: dead reckoning, 2: 2D-fix, 3: 3D-fix, 4: GNSS+dead reckoning, 5: Time only
             # RTK status is in flags
+            
+            # Unpack time (UTC)
+            year = struct.unpack("<H", payload[4:6])[0]
+            month, day, hour, minute, sec = payload[6:11]
+            try:
+                self._current_pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
+            except ValueError:
+                pass
             
             # Unpack key fields
             # Offset 20: fixType (B)
