@@ -69,11 +69,15 @@ class UBXParser:
             
             # Map fix type
             if flags & 0x18 == 0x18: # RTK Fixed
-                self._current_pos.fix_type = 4
+                self._current_pos.fix_type = GNSSPosition.RTK_FIXED
             elif flags & 0x10 == 0x10: # RTK Float
-                self._current_pos.fix_type = 5
+                self._current_pos.fix_type = GNSSPosition.RTK_FLOAT
+            elif fix_type_raw == 2:
+                self._current_pos.fix_type = GNSSPosition.FIX_2D
+            elif fix_type_raw == 3:
+                self._current_pos.fix_type = GNSSPosition.FIX_3D
             else:
-                self._current_pos.fix_type = fix_type_raw # 2: 2D, 3: 3D
+                self._current_pos.fix_type = GNSSPosition.NO_FIX
                 
             # Return a copy to avoid shared reference issues
             return copy(self._current_pos)

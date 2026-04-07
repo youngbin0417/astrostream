@@ -19,28 +19,33 @@ class AutoParser:
         self._process_buffer()
         
     def _process_buffer(self):
-        """Internal logic to extract and route packets."""
+        """Internal logic to extract and route packets with efficient noise handling."""
         while len(self._buffer) > 0:
             # Look for headers
-            # NMEA starts with $ (0x24)
-            # UBX starts with \xB5\x62
-            
-            # Find the first occurrences of headers
             nmea_idx = self._buffer.find(b"$")
             ubx_idx = self._buffer.find(b"\xB5\x62")
             
-            # Case 1: No headers found
+            # Case 1: No headers found at all
             if nmea_idx == -1 and ubx_idx == -1:
-                # Discard noise if buffer is too large
-                if len(self._buffer) > 1024:
-                    self._buffer = self._buffer[-1024:]
+                # Keep last byte ONLY if it could be start of a header
+                if len(self._buffer) > 0:
+                    last_byte = self._buffer[-1]
+                    if last_byte in (0x24, 0xB5): # '$' or '\xB5'
+                        self._buffer = self._buffer[-1:]
+                    else:
+                        self._buffer.clear()
                 return
             
-            # Determine which header came first
-            if (nmea_idx != -1 and (ubx_idx == -1 or nmea_idx < ubx_idx)):
+            # Case 2: Header found. Skip any noise before the first header.
+            first_idx = min(idx for idx in (nmea_idx, ubx_idx) if idx != -1)
+            if first_idx > 0:
+                self._buffer = self._buffer[first_idx:]
+                # Re-check indices after shifting
+                if nmea_idx != -1: nmea_idx -= first_idx
+                if ubx_idx != -1: ubx_idx -= first_idx
+
+            if nmea_idx == 0:
                 # Handle NMEA
-                # Remove noise before header
-                self._buffer = self._buffer[nmea_idx:]
                 # Read until \n
                 nl_idx = self._buffer.find(b"\n")
                 if nl_idx == -1:
@@ -58,12 +63,9 @@ class AutoParser:
                 except Exception:
                     pass
                     
-            elif ubx_idx != -1:
+            elif ubx_idx == 0:
                 # Handle UBX
-                # Remove noise before header
-                self._buffer = self._buffer[ubx_idx:]
-                
-                # Need at least 6 bytes for the full header (Preamble(2), Class(1), ID(1), Length(2))
+                # Need at least 6 bytes for the full header
                 if len(self._buffer) < 6:
                     return
                 
@@ -83,6 +85,7 @@ class AutoParser:
                 # Verify UBX checksum
                 expected_ck_a, expected_ck_b = packet[-2], packet[-1]
                 if not self.ubx.verify_checksum(cls, msg_id, length, payload, expected_ck_a, expected_ck_b):
+                    self._buffer = self._buffer[2:] # Skip preamble and try again
                     continue
                 
                 pos = self.ubx.parse_payload(cls, msg_id, payload)

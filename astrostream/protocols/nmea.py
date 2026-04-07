@@ -1,7 +1,5 @@
-import re
 from typing import Optional
 from copy import copy
-from datetime import datetime
 from ..models import GNSSPosition
 
 class NMEAParser:
@@ -57,20 +55,31 @@ class NMEAParser:
         # Remove $ and *CS
         raw = sentence.strip()[1:].split("*")[0]
         fields = raw.split(",")
-        talker_id = fields[0][:2]
+        talker_id = fields[0][:2]  # Left for potential future use or context
         msg_type = fields[0][2:]
         
-        # Map talker ID to constellation
-        const_map = {
-            "GP": "gps", "GL": "glonass", "GA": "galileo", "GB": "beidou", "GQ": "qzss", "GN": "mixed"
-        }
+        # const_map could map talker ID to constellation if needed in future
+        # const_map = {
+        #     "GP": "gps", "GL": "glonass", "GA": "galileo", "GB": "beidou", "GQ": "qzss", "GN": "mixed"
+        # }
         
         if msg_type == "GGA":
             # $GPGGA,time,lat,N,lon,E,fix,sats,hdop,alt,M,geoid,M,age,id
             if len(fields) >= 10:
                 self._current_pos.lat = self._dm_to_deg(fields[2], fields[3])
                 self._current_pos.lon = self._dm_to_deg(fields[4], fields[5])
-                self._current_pos.fix_type = int(fields[6]) if fields[6] else 0
+                
+                # Standardize fix type
+                quality = int(fields[6]) if fields[6] else 0
+                if quality in [1, 2, 3]: # GPS, DGPS, PPS fix
+                    self._current_pos.fix_type = GNSSPosition.FIX_3D
+                elif quality == 4: # RTK Fixed
+                    self._current_pos.fix_type = GNSSPosition.RTK_FIXED
+                elif quality == 5: # RTK Float
+                    self._current_pos.fix_type = GNSSPosition.RTK_FLOAT
+                else:
+                    self._current_pos.fix_type = GNSSPosition.NO_FIX
+
                 self._current_pos.num_sats = int(fields[7]) if fields[7] else 0
                 self._current_pos.hdop = float(fields[8]) if fields[8] else 99.9
                 self._current_pos.alt = float(fields[9]) if fields[9] else 0.0

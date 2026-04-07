@@ -124,5 +124,5 @@ dmypy.json
 *.swo
 *~
 
-# Test result
-test_results.txt
+# Test and logs
+*.txt

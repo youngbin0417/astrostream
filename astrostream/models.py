@@ -5,11 +5,18 @@ from typing import Dict, Optional
 @dataclass
 class GNSSPosition:
     """Unified GNSS Position data."""
-    timestamp: datetime = None
+    # Fix types constants
+    NO_FIX = 0
+    FIX_2D = 2
+    FIX_3D = 3
+    RTK_FIXED = 4
+    RTK_FLOAT = 5
+
+    timestamp: Optional[datetime] = None
     lat: float = 0.0          # Decimal Degrees
     lon: float = 0.0          # Decimal Degrees
     alt: float = 0.0          # Meters
-    fix_type: int = 0         # 0: No Fix, 1: 2D, 2: 3D, 4: RTK Fixed, 5: RTK Float
+    fix_type: int = 0         # Standardized using constants above
     num_sats: int = 0
     hdop: float = 99.9
     
