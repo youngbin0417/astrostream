@@ -139,8 +139,8 @@ class TestNMEACoordinates:
         s = f"${body}*{_nmea_checksum(body)}\r\n".encode()
         r = _collect(s)
         assert len(r) == 1
-        assert r[0].lat == 0.0
-        assert r[0].lon == 0.0
+        assert r[0].lat is None
+        assert r[0].lon is None
 
     def test_no_fix_gga(self):
         """fix_type=0 should still parse without error."""
@@ -158,14 +158,13 @@ class TestNMEARMC:
         assert len(r) == 1
         assert abs(r[0].lat - 37.5665) < 0.001
 
-    def test_rmc_void_preserves_previous(self):
-        """V (void) status should NOT overwrite lat/lon; previous values kept."""
-        gga = make_gga("3733.9900", "N", "12658.6800", "E")
-        rmc_void = make_rmc("0000.0000", "N", "00000.0000", "E", status="V")
-        r = _collect(gga + rmc_void)
-        assert len(r) == 2
-        # Second result keeps GGA coords because RMC was void
-        assert abs(r[1].lat - 37.5665) < 0.001
+    def test_rmc_void_is_handled(self):
+        """V (void) status should result in None coordinates."""
+        rmc_void = make_rmc("3733.9900", "N", "12658.6800", "E", status="V")
+        r = _collect(rmc_void)
+        assert len(r) == 1
+        assert r[0].lat is None
+        assert r[0].lon is None
 
 
 # ── 5. UBX Edge Cases ───────────────────────────────────────────────────────
@@ -192,11 +191,13 @@ class TestUBXEdgeCases:
         assert _collect(corrupted) == []
 
     def test_rtk_fixed_flag(self):
-        r = _collect(make_ubx_nav_pvt(37.5665, 126.978, flags=0x18))
+        # bit 6-7 = 2 (0x80)
+        r = _collect(make_ubx_nav_pvt(37.5665, 126.978, flags=0x80))
         assert r[0].fix_type == 4
 
     def test_rtk_float_flag(self):
-        r = _collect(make_ubx_nav_pvt(37.5665, 126.978, flags=0x10))
+        # bit 6-7 = 1 (0x40)
+        r = _collect(make_ubx_nav_pvt(37.5665, 126.978, flags=0x40))
         assert r[0].fix_type == 5
 
     def test_negative_coordinates(self):
@@ -306,7 +307,7 @@ class TestGNSSPositionModel:
 
     def test_default_values(self):
         p = GNSSPosition()
-        assert p.lat == 0.0 and p.lon == 0.0 and p.alt == 0.0
+        assert p.lat is None and p.lon is None and p.alt is None
         assert p.fix_type == 0
         assert p.num_sats == 0
         assert p.hdop == 99.9
