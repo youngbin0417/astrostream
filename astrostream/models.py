@@ -24,7 +24,14 @@ class GNSSPosition:
     sat_counts: Dict[str, int] = field(default_factory=dict)
     
     def __repr__(self):
-        return f"<GNSS {self.fix_type}D Fix: {self.lat:.6f}, {self.lon:.6f} Sats: {self.num_sats}>"
+        fix_str = {
+            self.NO_FIX: "No Fix",
+            self.FIX_2D: "2D Fix",
+            self.FIX_3D: "3D Fix",
+            self.RTK_FIXED: "RTK Fixed",
+            self.RTK_FLOAT: "RTK Float"
+        }.get(self.fix_type, f"Unknown({self.fix_type})")
+        return f"<GNSS {fix_str}: {self.lat:.6f}, {self.lon:.6f} Sats: {self.num_sats}>"
 
 @dataclass
 class SatelliteInfo:

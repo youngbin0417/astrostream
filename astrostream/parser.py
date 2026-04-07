@@ -48,7 +48,19 @@ class AutoParser:
                 # Handle NMEA
                 # Read until \n
                 nl_idx = self._buffer.find(b"\n")
+                
+                # Check for other protocol headers starting INSIDE this unclosed sentence
+                ubx_in_nmea = self._buffer.find(b"\xB5\x62", 1)
+                if ubx_in_nmea != -1 and (nl_idx == -1 or ubx_in_nmea < nl_idx):
+                    # Found a UBX header before newline. NMEA sentence is corrupted.
+                    self._buffer = self._buffer[ubx_in_nmea:]
+                    continue
+                    
                 if nl_idx == -1:
+                    # Protect against memory leak and deadlock if no newline comes
+                    if len(self._buffer) > 150:
+                        self._buffer = self._buffer[1:]
+                        continue
                     return # Incomplete sentence
                 
                 # Extract sentence

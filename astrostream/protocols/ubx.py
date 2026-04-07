@@ -1,6 +1,6 @@
 import struct
 from typing import Optional
-from copy import copy
+from copy import deepcopy
 from ..models import GNSSPosition
 
 class UBXParser:
@@ -56,21 +56,22 @@ class UBXParser:
             
             fix_type_raw = payload[20]
             flags = payload[21]
-            num_sats = payload[23]
+            # Offset 32: height (i) - mm (ellipsoid)
+            # Offset 36: hMSL (i) - mm (mean sea level)
             lon_raw = struct.unpack("<i", payload[24:28])[0]
             lat_raw = struct.unpack("<i", payload[28:32])[0]
-            height_raw = struct.unpack("<i", payload[32:36])[0]
+            hmsl_raw = struct.unpack("<i", payload[36:40])[0]
             
             # Convert to unified models
             self._current_pos.lat = lat_raw / 1e7
             self._current_pos.lon = lon_raw / 1e7
-            self._current_pos.alt = height_raw / 1000.0 # mm to meters
+            self._current_pos.alt = hmsl_raw / 1000.0 # mm to meters
             self._current_pos.num_sats = num_sats
             
-            # Map fix type
-            if flags & 0x18 == 0x18: # RTK Fixed
+            # Map fix type (carrSoln is bits 6-7 -> mask 0xC0)
+            if flags & 0xC0 == 0x80: # RTK Fixed
                 self._current_pos.fix_type = GNSSPosition.RTK_FIXED
-            elif flags & 0x10 == 0x10: # RTK Float
+            elif flags & 0xC0 == 0x40: # RTK Float
                 self._current_pos.fix_type = GNSSPosition.RTK_FLOAT
             elif fix_type_raw == 2:
                 self._current_pos.fix_type = GNSSPosition.FIX_2D
@@ -80,6 +81,6 @@ class UBXParser:
                 self._current_pos.fix_type = GNSSPosition.NO_FIX
                 
             # Return a copy to avoid shared reference issues
-            return copy(self._current_pos)
+            return deepcopy(self._current_pos)
             
         return None
