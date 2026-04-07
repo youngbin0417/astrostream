@@ -123,3 +123,6 @@ dmypy.json
 *.swp
 *.swo
 *~
+
+# Test result
+test_results.txt
