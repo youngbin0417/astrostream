@@ -31,6 +31,14 @@ class UBXParser:
             
         return ck_a == expected_ck_a and ck_b == expected_ck_b
 
+    def _create_utc_datetime(self, year, month, day, hour, minute, sec) -> Optional[datetime]:
+        """Safely create datetime, handling leap seconds."""
+        try:
+            # Python datetime.datetime does not support second=60
+            return datetime(year, month, day, hour, minute, min(sec, 59), tzinfo=timezone.utc)
+        except ValueError:
+            return None
+
     def parse_payload(self, cls: int, msg_id: int, payload: bytes) -> Optional[GNSSPosition]:
         """Parse the payload of a UBX message."""
         if cls == self.UBX_NAV and msg_id == self.UBX_NAV_PVT:
@@ -54,10 +62,7 @@ class UBXParser:
             
             # Check validDate (bit 0) and validTime (bit 1)
             if valid_flags & 0x03 == 0x03:
-                try:
-                    pos.timestamp = datetime(year, month, day, hour, minute, sec, tzinfo=timezone.utc)
-                except ValueError:
-                    pos.timestamp = None
+                pos.timestamp = self._create_utc_datetime(year, month, day, hour, minute, sec)
             else:
                 pos.timestamp = None
             
@@ -71,25 +76,23 @@ class UBXParser:
             
             # Convert to unified models
             # Only set coordinates if we have some kind of fix (2D, 3D, or RTK)
-            # fix_type_raw: 2: 2D, 3: 3D, 4: GNSS+DR
-            # flags: 0x80: RTK Fixed, 0x40: RTK Float
-            has_fix = (fix_type_raw in (2, 3, 4)) or (flags & 0xC0 in (0x40, 0x80))
+            # carrSoln: bits 6-7 of flags OR bits 3-4 (some versions)
+            is_rtk_fixed = (flags & 0xC0 == 0x80) or (flags & 0x18 == 0x18)
+            is_rtk_float = (flags & 0xC0 == 0x40) or (flags & 0x18 == 0x10)
+            
+            has_fix = (fix_type_raw in (2, 3, 4)) or is_rtk_fixed or is_rtk_float
             
             if has_fix:
                 pos.lat = lat_raw / 1e7
                 pos.lon = lon_raw / 1e7
                 pos.alt = hmsl_raw / 1000.0 # mm to meters
-            else:
-                pos.lat = None
-                pos.lon = None
-                pos.alt = None
-                
+            
             pos.num_sats = num_sats
             
-            # Map fix type (carrSoln is bits 6-7 -> mask 0xC0)
-            if flags & 0xC0 == 0x80: # RTK Fixed
+            # Map fix type
+            if is_rtk_fixed:
                 pos.fix_type = GNSSPosition.RTK_FIXED
-            elif flags & 0xC0 == 0x40: # RTK Float
+            elif is_rtk_float:
                 pos.fix_type = GNSSPosition.RTK_FLOAT
             elif fix_type_raw == 2:
                 pos.fix_type = GNSSPosition.FIX_2D
