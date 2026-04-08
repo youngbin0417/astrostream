@@ -10,18 +10,23 @@ class AutoParser:
     
     MAX_NMEA_LENGTH = 150
     MAX_UBX_PAYLOAD = 2048
+    MAX_BUFFER_SIZE = 65536 # 64KB safety limit
 
     def __init__(self, callback: Optional[Callable[[GNSSPosition], None]] = None):
         self.callback = callback
         self.nmea = NMEAParser()
         self.ubx = UBXParser()
         self._buffer = bytearray()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         
     def feed(self, data: bytes):
         """Append new bytes and process any complete packets."""
         positions = []
         with self._lock:
+            if len(self._buffer) + len(data) > self.MAX_BUFFER_SIZE:
+                # Buffer overflow protection: discard oldest data by clearing
+                self._buffer.clear()
+            
             self._buffer.extend(data)
             positions = self._process_buffer()
         
